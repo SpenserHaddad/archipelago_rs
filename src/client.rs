@@ -26,9 +26,7 @@ pub enum ArchipelagoError {
     NetworkError(#[from] tungstenite::Error),
 }
 
-/**
- * A convenience layer to manage your connection to and communication with Archipelago
- */
+/// A convenience layer to manage your connection to and communication with Archipelago
 pub struct ArchipelagoClient {
     ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
     room_info: RoomInfo,
@@ -37,9 +35,7 @@ pub struct ArchipelagoClient {
 }
 
 impl ArchipelagoClient {
-    /**
-     * Create an instance of the client and connect to the server on the given URL
-     */
+    ///Create an instance of the client and connect to the server on the given URL
     pub async fn new(url: &str) -> Result<ArchipelagoClient, ArchipelagoError> {
         // Attempt WSS, downgrade to WS if the TLS handshake fails
         let mut wss_url = String::new();
@@ -80,8 +76,8 @@ impl ArchipelagoClient {
     }
 
     /**
-     * Create an instance of the client and connect to the server, fetching the given games' Data
-     * Package
+    ///Create an instance of the client and connect to the server, fetching the given games' Data
+    ///Package
      */
     pub async fn with_data_package(
         url: &str,
@@ -121,12 +117,10 @@ impl ArchipelagoClient {
         Ok(())
     }
 
-    /**
-     * Read a message from the server
-     *
-     * Will buffer results locally, and return results from buffer or wait on network
-     * if buffer is empty
-     */
+    /// Read a message from the server
+    ///
+    /// Will buffer results locally, and return results from buffer or wait on network
+    /// if buffer is empty
     pub async fn recv(&mut self) -> Result<Option<ServerMessage>, ArchipelagoError> {
         if let Some(message) = self.message_buffer.pop() {
             return Ok(Some(message));
@@ -143,12 +137,10 @@ impl ArchipelagoClient {
         }
     }
 
-    /**
-     * Send a connect request to the Archipelago server
-     *
-     * Will attempt to read a Connected packet in response, and will return an error if
-     * another packet is found
-     */
+    /// Send a connect request to the Archipelago server
+    ///
+    /// Will attempt to read a Connected packet in response, and will return an error if
+    /// another packet is found
     pub async fn connect(
         &mut self,
         game: &str,
@@ -181,9 +173,8 @@ impl ArchipelagoClient {
         }
     }
 
-    /**
-     * Basic chat command which sends text to the server to be distributed to other clients.
-     */
+    /// Basic chat command which sends text to the server to be distributed to other
+    /// clients.
     pub async fn say(&mut self, message: &str) -> Result<(), ArchipelagoError> {
         Ok(self
             .send(ClientMessage::Say(Say {
@@ -192,11 +183,9 @@ impl ArchipelagoClient {
             .await?)
     }
 
-    /**
-     * Sent to server to request a ReceivedItems packet to synchronize items.
-     *
-     * Will buffer any non-ReceivedItems packets returned
-     */
+    /// Sent to server to request a ReceivedItems packet to synchronize items.
+    ///
+    /// Will buffer any non-ReceivedItems packets returned
     pub async fn sync(&mut self) -> Result<ReceivedItems, ArchipelagoError> {
         self.send(ClientMessage::Sync).await?;
         while let Some(response) = self.recv().await? {
@@ -209,22 +198,20 @@ impl ArchipelagoClient {
         Err(ArchipelagoError::ConnectionClosed)
     }
 
-    /**
-     * Sent to server to inform it of locations that the client has checked.
-     *
-     * Used to inform the server of new checks that are made, as well as to sync state.
-     */
+    /// Sent to server to inform it of locations that the client has checked.
+    ///
+    /// Used to inform the server of new checks that are made, as well as to sync state.
     pub async fn location_checks(&mut self, locations: Vec<i32>) -> Result<(), ArchipelagoError> {
         Ok(self
             .send(ClientMessage::LocationChecks(LocationChecks { locations }))
             .await?)
     }
 
-    /**
-     * Sent to the server to inform it of locations the client has seen, but not checked.
-     *
-     * Useful in cases in which the item may appear in the game world, such as 'ledge items' in A Link to the Past. Non-LocationInfo packets will be buffered
-     */
+    /// Sent to the server to inform it of locations the client has seen, but not
+    /// checked.
+    ///
+    /// Useful in cases in which the item may appear in the game world, such as 'ledge
+    /// items' in A Link to the Past. Non-LocationInfo packets will be buffered
     pub async fn location_scouts(
         &mut self,
         locations: Vec<i32>,
@@ -245,20 +232,19 @@ impl ArchipelagoClient {
         Err(ArchipelagoError::ConnectionClosed)
     }
 
-    /**
-     * Sent to the server to update on the sender's status.
-     *
-     * Examples include readiness or goal completion. (Example: defeated Ganon in A Link to the Past)
-     */
+    /// Sent to the server to update on the sender's status.
+    ///
+    /// Examples include readiness or goal completion. (Example: defeated Ganon in A
+    /// Link to the Past)
     pub async fn status_update(&mut self, status: ClientStatus) -> Result<(), ArchipelagoError> {
         Ok(self
             .send(ClientMessage::StatusUpdate(StatusUpdate { status }))
             .await?)
     }
 
-    /**
-     * Send this message to the server, tell it which clients should receive the message and the server will forward the message to all those targets to which any one requirement applies.
-     */
+    /// Send this message to the server, tell it which clients should receive the
+    /// message and the server will forward the message to all those targets to which
+    /// any one requirement applies.
     pub async fn bounce(
         &mut self,
         games: Option<Vec<String>>,
@@ -271,17 +257,16 @@ impl ArchipelagoClient {
                 games,
                 slots,
                 tags,
-                data,
+                data: ApValue(data),
             }))
             .await?)
     }
 
-    /**
-     * Used to request a single or multiple values from the server's data storage, see the Set package for how to write values to the data storage.
-     *
-     * A Get package will be answered with a Retrieved package. Non-Retrieved responses are
-     * buffered
-     */
+    /// Used to request a single or multiple values from the server's data storage, see
+    /// the Set package for how to write values to the data storage.
+    ///
+    /// A Get package will be answered with a Retrieved package. Non-Retrieved responses
+    /// are buffered.
     pub async fn get(&mut self, keys: Vec<String>) -> Result<Retrieved, ArchipelagoError> {
         self.send(ClientMessage::Get(Get { keys })).await?;
         while let Some(response) = self.recv().await? {
@@ -294,11 +279,11 @@ impl ArchipelagoClient {
         Err(ArchipelagoError::ConnectionClosed)
     }
 
-    /**
-     * Used to write data to the server's data storage, that data can then be shared across worlds or just saved for later.
-     *
-     * Values for keys in the data storage can be retrieved with a Get package, or monitored with a SetNotify package. Non-SetReply responses are buffered
-     */
+    /// Used to write data to the server's data storage, that data can then be shared
+    /// across worlds or just saved for later.
+    ///
+    /// Values for keys in the data storage can be retrieved with a Get package, or
+    /// monitored with a SetNotify package. Non-SetReply responses are buffered
     pub async fn set(
         &mut self,
         key: String,
@@ -308,7 +293,7 @@ impl ArchipelagoClient {
     ) -> Result<SetReply, ArchipelagoError> {
         self.send(ClientMessage::Set(Set {
             key,
-            default,
+            default: ApValue(default),
             want_reply,
             operations,
         }))
@@ -323,13 +308,12 @@ impl ArchipelagoClient {
         Err(ArchipelagoError::ConnectionClosed)
     }
 
-    /**
-     * Split the client into two parts, one to handle sending and one to handle receiving.
-     *
-     * This removes access to a few convenience methods (like `get` or `set`) because it's
-     * there's now extra coordination required to match a read and write, but it brings
-     * the benefits of allowing simultaneous reading and writing.
-     */
+    /// Split the client into two parts, one to handle sending and one to handle
+    /// receiving.
+    ///
+    /// This removes access to a few convenience methods (like `get` or `set`) because
+    /// it's there's now extra coordination required to match a read and write, but it
+    /// brings the benefits of allowing simultaneous reading and writing.
     pub fn split(self) -> (ArchipelagoClientSender, ArchipelagoClientReceiver) {
         let Self {
             ws,
@@ -351,11 +335,11 @@ impl ArchipelagoClient {
 }
 
 /**
- * Once split, this struct handles the sending-side of your connection
- *
- * For helper method docs, see ArchipelagoClient. Helper methods that require
- * both sending and receiving are intentionally unavailable; for those messages,
- * use `send`.
+///Once split, this struct handles the sending-side of your connection
+///
+///For helper method docs, see ArchipelagoClient. Helper methods that require
+///both sending and receiving are intentionally unavailable; for those messages,
+///use `send`.
  */
 pub struct ArchipelagoClientSender {
     ws: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
@@ -401,19 +385,17 @@ impl ArchipelagoClientSender {
                 games,
                 slots,
                 tags,
-                data,
+                data: ApValue(data),
             }))
             .await?)
     }
 }
 
-/**
- * Once split, this struct handles the receiving-side of your connection
- *
- * For helper method docs, see ArchipelagoClient. Helper methods that require
- * both sending and receiving are intentionally unavailable; for those messages,
- * use `recv`.
- */
+/// Once split, this struct handles the receiving-side of your connection
+///
+/// For helper method docs, see ArchipelagoClient. Helper methods that require
+/// both sending and receiving are intentionally unavailable; for those messages,
+/// use `recv`.
 pub struct ArchipelagoClientReceiver {
     ws: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     room_info: RoomInfo,
