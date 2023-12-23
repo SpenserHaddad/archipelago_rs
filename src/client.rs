@@ -2,6 +2,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, Stream, StreamExt,
 };
+use gdnative::core_types::ToVariant;
 use thiserror::Error;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
@@ -24,6 +25,17 @@ pub enum ArchipelagoError {
     NonTextWebsocketResult(Message),
     #[error("network error")]
     NetworkError(#[from] tungstenite::Error),
+}
+
+impl ToVariant for ArchipelagoError {
+    fn to_variant(&self) -> gdnative::prelude::Variant {
+        match self {
+            ArchipelagoError::IllegalResponse { received, expected } => {
+                (self.to_string(), received, expected.to_owned()).to_variant()
+            }
+            _ => self.to_string().to_variant(),
+        }
+    }
 }
 
 /// A convenience layer to manage your connection to and communication with Archipelago
