@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use gdnative::{
-    core_types::ToVariant,
+    core_types::{FromVariant, ToVariant},
     derive::{FromVariant, ToVariant},
 };
 use serde::{Deserialize, Serialize};
@@ -38,6 +38,14 @@ impl ToVariant for ApValue {
     }
 }
 
+impl FromVariant for ApValue {
+    fn from_variant(
+        variant: &gdnative::prelude::Variant,
+    ) -> Result<Self, gdnative::prelude::FromVariantError> {
+        Ok(ApValue(serde_json::to_value(variant.dispatch()).unwrap()))
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "cmd")]
 pub enum ClientMessage {
@@ -54,7 +62,7 @@ pub enum ClientMessage {
     SetNotify(SetNotify),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToVariant)]
 #[serde(tag = "cmd")]
 pub enum ServerMessage {
     RoomInfo(RoomInfo),
@@ -72,7 +80,7 @@ pub enum ServerMessage {
     SetReply(SetReply),
 }
 
-#[derive(Debug, Serialize_repr, Deserialize_repr, ToVariant)]
+#[derive(Clone, Debug, Serialize_repr, Deserialize_repr, ToVariant)]
 #[repr(u16)]
 pub enum Permission {
     Disabled = 0,
@@ -82,7 +90,7 @@ pub enum Permission {
     AutoEnabled = 7,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToVariant, FromVariant)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToVariant, FromVariant)]
 pub struct NetworkVersion {
     pub major: i32,
     pub minor: i32,
@@ -90,7 +98,7 @@ pub struct NetworkVersion {
     pub class: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToVariant, FromVariant)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToVariant, FromVariant)]
 pub struct NetworkPlayer {
     pub team: i32,
     pub slot: i32,
@@ -98,7 +106,7 @@ pub struct NetworkPlayer {
     pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToVariant, FromVariant)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToVariant, FromVariant)]
 pub struct NetworkItem {
     pub item: i32,
     pub location: i32,
@@ -106,7 +114,7 @@ pub struct NetworkItem {
     pub flags: i32,
 }
 
-#[derive(Debug, Serialize_repr, Deserialize_repr, ToVariant, FromVariant)]
+#[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr, ToVariant, FromVariant)]
 #[repr(u16)]
 pub enum SlotType {
     Spectator = 0,
@@ -114,7 +122,7 @@ pub enum SlotType {
     Group = 2,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToVariant, FromVariant)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToVariant, FromVariant)]
 pub struct NetworkSlot {
     pub name: String,
     pub game: String,
@@ -220,7 +228,7 @@ pub struct SetNotify {
 
 // RESPONSES
 
-#[derive(Debug, Serialize, Deserialize, ToVariant)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToVariant)]
 pub struct RoomInfo {
     pub version: NetworkVersion,
     pub tags: Vec<String>,
@@ -261,7 +269,7 @@ pub struct LocationInfo {
     pub locations: Vec<NetworkItem>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToVariant)]
 pub struct RoomUpdate {
     // Copied from RoomInfo
     pub version: Option<NetworkVersion>,
@@ -315,7 +323,7 @@ pub struct DataPackageObject {
     pub games: HashMap<String, GameData>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToVariant, FromVariant)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToVariant, FromVariant)]
 pub struct GameData {
     pub item_name_to_id: HashMap<String, i32>,
     pub location_name_to_id: HashMap<String, i32>,
