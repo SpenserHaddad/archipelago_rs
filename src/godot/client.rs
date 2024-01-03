@@ -1,12 +1,7 @@
 use std::collections::HashMap;
 
-use futures::executor;
 use gdnative::prelude::*;
-use tokio::{
-    runtime::{Builder, Runtime},
-    sync::mpsc,
-    task::LocalSet,
-};
+use tokio::sync::mpsc;
 
 use crate::{
     client::{
@@ -19,16 +14,6 @@ use crate::{
     },
 };
 
-fn init(handle: InitHandle) {
-    gdnative::tasks::register_runtime(&handle);
-    gdnative::tasks::set_executor(EXECUTOR.with(|e| *e));
-    handle.add_class::<GodotArchipelagoClient>();
-    handle.add_class::<GodotArchipelagoClientFactory>();
-    handle.add_class::<AsyncExecutorDriver>();
-}
-
-godot_init!(init);
-
 #[derive(NativeClass)]
 #[no_constructor]
 #[inherit(Node)]
@@ -38,7 +23,7 @@ pub struct GodotArchipelagoClient {
 
     room_info: RoomInfo,
 
-    #[property]
+    // #[property]
     data_package: HashMap<String, GameData>,
 
     send_message_queue: mpsc::Sender<ClientMessage>,
@@ -48,8 +33,17 @@ pub struct GodotArchipelagoClient {
 #[methods]
 impl GodotArchipelagoClient {
     fn enqueue_message(&self, message: ClientMessage) -> bool {
-        godot_print!("Sending message {message:?}");
-        self.send_message_queue.blocking_send(message).is_ok()
+        godot_print!("RUST: Sending message {message:?}.");
+        match self.send_message_queue.blocking_send(message) {
+            Ok(_) => {
+                godot_print!("RUST: Sent message successfully.");
+                true
+            }
+            Err(err) => {
+                godot_print!("RUST: Failed to send message: {err:?}.");
+                false
+            }
+        }
     }
 
     #[method]
@@ -57,7 +51,10 @@ impl GodotArchipelagoClient {
         let mut messages: Vec<Variant> = vec![];
         loop {
             match self.receive_message_queue.try_recv() {
-                Ok(message) => messages.push(message.to_variant()),
+                Ok(message) => {
+                    godot_print!("RUST: Received message {message:?}.");
+                    messages.push(message.to_variant());
+                }
                 Err(_err) => break,
             }
         }
@@ -65,7 +62,7 @@ impl GodotArchipelagoClient {
     }
 
     #[method]
-    pub fn connect(
+    pub fn connect_to_multiworld(
         &self,
         game: String,
         name: String,
@@ -87,7 +84,6 @@ impl GodotArchipelagoClient {
                 class: "Version".to_string(),
             },
         });
-        godot_print!("Sending Connect message: {message:?}");
         self.enqueue_message(message)
     }
 
@@ -176,67 +172,77 @@ impl GodotArchipelagoClient {
     pub fn room_info(&self) -> Variant {
         self.room_info.to_variant()
     }
-}
 
-impl ToVariant for GodotArchipelagoClient {
-    fn to_variant(&self) -> Variant {
-        self.url.to_variant()
+    #[method]
+    pub fn data_package(&self) -> Variant {
+        self.data_package.to_variant()
     }
 }
 
-#[derive(NativeClass, ToVariant, FromVariant)]
+#[derive(NativeClass)]
 #[inherit(Node)]
-struct GodotArchipelagoClientFactory {}
+pub struct GodotArchipelagoClientFactory {
+    #[property]
+    x: i32,
+}
 
 impl GodotArchipelagoClientFactory {
     fn new(_base: &Node) -> Self {
-        GodotArchipelagoClientFactory {}
+        GodotArchipelagoClientFactory { x: 10 }
     }
 }
 
 #[methods]
 impl GodotArchipelagoClientFactory {
     #[method]
-    fn _ready(&self, #[base] _base: &Node) {
-        godot_print!("*******Hello from the client factory in Rust!!******");
-    }
+    fn _ready(&self, #[base] _base: &Node) {}
 
-    #[method]
-    fn boop(&self) {
-        godot_print!("*******BEEP from the client factory in Rust!!******");
-    }
-
-    #[method]
-    fn create_client(&self, url: String) -> Result<GodotArchipelagoClient, ArchipelagoError> {
+    #[method(async)]
+    fn create_client(
+        &self,
+        url: String,
+    ) -> impl std::future::Future<
+        Output = Result<Instance<GodotArchipelagoClient, Shared>, ArchipelagoError>,
+    > + 'static {
         godot_print!("Creating client with url {url:?}");
-        let client = executor::block_on(ArchipelagoClient::new(url.as_str()))
-            .map_err(|e| godot_error!("Error creating client {e:?}"))
-            .unwrap();
-        let room_info: RoomInfo = client.room_info().to_owned();
-        let data_package: HashMap<String, GameData> = match client.data_package() {
-            Some(dp) => dp.games.clone(),
-            None => HashMap::new(),
-        };
+        async move {
+            godot_print!("In async block");
+            let client = ArchipelagoClient::new(url.as_str())
+                .await
+                .map_err(|e| godot_error!("Error creating client {e:?}"))
+                .unwrap();
+            godot_print!("Got client");
 
-        // Setup send/receive tasks
-        let (sender, receiver) = client.split();
-        let (send_queue_tx, send_queue_rx) = mpsc::channel::<ClientMessage>(1000);
-        let (receive_queue_tx, receive_queue_rx) = mpsc::channel::<ServerMessage>(1000);
-        tokio::spawn(async {
-            recv_message_task(receiver, receive_queue_tx).await;
-        });
-        tokio::spawn(async {
-            send_messages_task(sender, send_queue_rx).await;
-        });
+            let room_info: RoomInfo = client.room_info().to_owned();
+            let data_package: HashMap<String, GameData> = match client.data_package() {
+                Some(dp) => dp.games.clone(),
+                None => HashMap::new(),
+            };
+            godot_print!("Got room info and data package");
 
-        let client = GodotArchipelagoClient {
-            url,
-            room_info,
-            data_package,
-            send_message_queue: send_queue_tx,
-            receive_message_queue: receive_queue_rx,
-        };
-        Ok(client)
+            // Setup send/receive tasks
+            let (sender, receiver) = client.split();
+            let (send_queue_tx, send_queue_rx) = mpsc::channel::<ClientMessage>(1000);
+            let (receive_queue_tx, receive_queue_rx) = mpsc::channel::<ServerMessage>(1000);
+            tokio::spawn(async {
+                recv_message_task(receiver, receive_queue_tx).await;
+            });
+            tokio::spawn(async {
+                send_messages_task(sender, send_queue_rx).await;
+            });
+            godot_print!("Spawned send/recv tasks");
+
+            let client = GodotArchipelagoClient {
+                url,
+                room_info,
+                data_package,
+                send_message_queue: send_queue_tx,
+                receive_message_queue: receive_queue_rx,
+            };
+            godot_print!("Creating wrapper and returning");
+            let node = client.emplace();
+            Ok(node.into_shared())
+        }
     }
 }
 
@@ -244,14 +250,31 @@ async fn recv_message_task(
     mut receiver: ArchipelagoClientReceiver,
     queue: mpsc::Sender<ServerMessage>,
 ) {
+    godot_print!("RUST: Started receive message task.");
     loop {
-        if let Ok(message) = receiver.recv().await {
-            if let Some(message) = message {
-                queue.send(message).await.unwrap();
+        match receiver.recv().await {
+            Ok(message) => {
+                if let Some(message) = message {
+                    godot_print!("RUST: Received message.");
+                    queue.send(message).await.unwrap();
+                } else {
+                    godot_print!("RUST: Received empty message.");
+                }
             }
-        } else {
-            break;
+            Err(err) => {
+                godot_error!("RUST ERROR: Err in receive queue: {err:?}.");
+                break;
+            }
         }
+        // if let Ok(message) = receiver.recv().await {
+        //     if let Some(message) = message {
+        //         godot_print!("RUST: Received message.");
+        //         queue.send(message).await.unwrap();
+        //     }
+        // } else {
+        //     godot_print!("RUST: Shutting down receive queue.");
+        //     break;
+        // }
     }
 }
 
@@ -259,69 +282,20 @@ async fn send_messages_task(
     mut sender: ArchipelagoClientSender,
     mut queue: mpsc::Receiver<ClientMessage>,
 ) {
+    godot_print!("RUST: Started send message task.");
     loop {
         match queue.recv().await {
             // TODO: handle send error
-            Some(message) => sender.send(message).await.unwrap(),
+            Some(message) => {
+                godot_print!("RUST: Sending message.");
+                sender.send(message).await.unwrap()
+            }
             None => {
                 // Shutdown
+                godot_print!("RUST: Shutting down send queue.");
                 queue.close();
                 break;
             }
         };
-    }
-}
-
-#[derive(Default)]
-struct SharedLocalPool {
-    local_set: LocalSet,
-}
-
-thread_local! {
-    static EXECUTOR: &'static SharedLocalPool = {
-        Box::leak(Box::new(SharedLocalPool::default()))
-    };
-}
-
-impl futures::task::LocalSpawn for SharedLocalPool {
-    fn spawn_local_obj(
-        &self,
-        future: futures::task::LocalFutureObj<'static, ()>,
-    ) -> Result<(), futures::task::SpawnError> {
-        self.local_set.spawn_local(future);
-        Ok(())
-    }
-}
-
-#[derive(NativeClass)]
-#[inherit(Node)]
-struct AsyncExecutorDriver {
-    runtime: Runtime,
-}
-
-impl AsyncExecutorDriver {
-    fn new(_base: &Node) -> Self {
-        AsyncExecutorDriver {
-            runtime: Builder::new_current_thread()
-                .enable_io() // optional, depending on your needs
-                .build()
-                .unwrap(),
-        }
-    }
-}
-
-#[methods]
-impl AsyncExecutorDriver {
-    #[method]
-    fn _process(&self, #[base] _base: &Node, _delta: f64) {
-        EXECUTOR.with(|e| {
-            self.runtime
-                .block_on(async {
-                    e.local_set
-                        .run_until(async { tokio::task::spawn_local(async {}).await })
-                        .await
-                })
-                .unwrap()
-        })
     }
 }

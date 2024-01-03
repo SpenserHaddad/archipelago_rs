@@ -2,6 +2,5 @@
 //! Check out ArchipelagoClient for the meat of the logic
 
 pub mod client;
-// pub mod godot;
 pub mod godot;
 pub mod protocol;
